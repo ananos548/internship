@@ -1,17 +1,51 @@
+FROM python:3.10 as builder
+
+WORKDIR /usr/src/app
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+RUN apt-get update
+RUN apt-get upgrade -y && apt-get -y install postgresql gcc python3-dev musl-dev
+
+RUN pip install --upgrade pip
+
+COPY . .
+
+
+COPY ./req.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r req.txt
+
+
 FROM python:3.10
 
-COPY req.txt /temp/req.txt
-COPY internship /internship
-WORKDIR /internship
-EXPOSE 8000
+RUN mkdir -p /home/app
 
-RUN apt-get update && apt-get install -y postgresql-client build-essential libpq-dev
-RUN pip install --upgrade pip
-RUN pip install -r /temp/req.txt
+RUN groupadd app    # Создание группы
+RUN useradd -m -g app app -p PASSWORD   # Добавляем пользователя с паролем Password
+RUN usermod -aG app app # Добавляем в группу
 
+# Создание переменных
+ENV HOME=/home/app
+ENV APP_HOME=/home/app/web
+RUN mkdir $APP_HOME
+#RUN mkdir $APP_HOME/staticfiles
 
-RUN adduser --disabled-password app
+WORKDIR $APP_HOME
 
-RUN chown -R app:app /internship
+RUN apt-get update \
+    && apt-get install -y netcat
 
-USER app
+COPY --from=builder /usr/src/app/wheels /wheels
+COPY --from=builder /usr/src/app/req.txt .
+RUN pip install --no-cache /wheels/*
+
+COPY ./entrypoint.sh $APP_HOME
+
+COPY . $APP_HOME
+RUN chmod +x $APP_HOME/entrypoint.sh
+RUN chown -R app:app $APP_HOME
+
+#USER app
+USER root
+
+ENTRYPOINT ["/home/app/web/entrypoint.sh"]
